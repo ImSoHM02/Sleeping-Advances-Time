@@ -150,8 +150,36 @@ local function ApplySleepLogic(Prefab)
     end
 end
 
+-- For spider dens, the sleepingbag component is added with a delay,
+-- so we need to apply our logic after it's been added
+local function ApplySleepLogicDelayed(Prefab)
+    if not GLOBAL.TheWorld.ismastersim then
+        return
+    end
+
+    -- Check periodically if sleepingbag component has been added and apply our logic
+    local function CheckAndApplySleepLogic(inst)
+        if inst.components.sleepingbag ~= nil and inst.components.sleepingbag.onsleep ~= SleepingAdvancesTime then
+            print("[SleepingAdvancesTime] Applying sleep logic to spider den") -- DEBUG
+            inst.components.sleepingbag.onsleep = SleepingAdvancesTime
+        end
+    end
+
+    -- Initial check after a delay
+    Prefab:DoTaskInTime(0, CheckAndApplySleepLogic)
+
+    -- Periodic check in case den grows to tier 3 later
+    Prefab:DoPeriodicTask(5, CheckAndApplySleepLogic)
+end
+
 AddPrefabPostInit("tent", ApplySleepLogic)
 AddPrefabPostInit("portabletent", ApplySleepLogic)
+AddPrefabPostInit("siestahut", ApplySleepLogic)
 AddPrefabPostInit("bedroll_straw", ApplySleepLogic)
 --Seems to be an error where it uses 66% of the furry bedroll in one use, so disabled for now.
 --AddPrefabPostInit("bedroll_furry", ApplySleepLogic)
+
+-- Spider dens for Webber (all 3 tiers, sleeping bag is only added at tier 3)
+AddPrefabPostInit("spiderden", ApplySleepLogicDelayed)
+AddPrefabPostInit("spiderden_2", ApplySleepLogicDelayed)
+AddPrefabPostInit("spiderden_3", ApplySleepLogicDelayed)
