@@ -88,6 +88,16 @@ configuration_options =
         },
         default = 2,
     },
+    {
+        name    = "MULTIPLAYER_SLEEP_MODE",
+        label   = "Multiplayer Sleep Requirement",
+        hover   = "How many players must be sleeping for time to advance in multiplayer games. (Solo play is unaffected)",
+        options = {
+            {description = "All Players", data = "all", hover = "All living players must be asleep for time to advance."},
+            {description = "Any Player", data = "any", hover = "Any player can trigger time advance (original behavior)."}
+        },
+        default = "all",
+    },
     Title("Sleep Effect Multipliers"),
     {
         name    = "HEALTH_MULT",

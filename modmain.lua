@@ -6,7 +6,8 @@ GLOBAL.TUNING.SLEEPING_ADVANCES_TIME = {
     CROP_GROWTH_MULT = GetModConfigData("CROP_GROWTH_MULT") or 1,
     TIME_ADVANCE_MODE = GetModConfigData("TIME_ADVANCE_MODE") or "instant",
     SPEEDUP_MULTIPLIER = GetModConfigData("SPEEDUP_MULTIPLIER") or 10,
-    SPEEDUP_DELAY = GetModConfigData("SPEEDUP_DELAY") or 2
+    SPEEDUP_DELAY = GetModConfigData("SPEEDUP_DELAY") or 2,
+    MULTIPLAYER_SLEEP_MODE = GetModConfigData("MULTIPLAYER_SLEEP_MODE") or "all"
 }
 
 -- Helper function to apply stat changes
@@ -32,6 +33,43 @@ local function ApplyStatChanges(sleeper, time_delta, health_mult, sanity_mult, h
     end
 end
 
+-- Helper function to check if all players are sleeping (for multiplayer)
+local function AreAllPlayersSleeping()
+    local multiplayer_mode = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.MULTIPLAYER_SLEEP_MODE
+
+    -- If mode is "any", then we don't need to check all players
+    if multiplayer_mode == "any" then
+        return true
+    end
+
+    -- Get all players in the game
+    local all_players = GLOBAL.AllPlayers or {}
+    local sleeping_count = 0
+    local living_count = 0
+
+    for _, player in ipairs(all_players) do
+        -- Only count living players (not ghosts or invalid players)
+        if player and player:IsValid() and not player:HasTag("playerghost") then
+            living_count = living_count + 1
+
+            -- Check if player is sleeping
+            if player.sleepingbag ~= nil then
+                sleeping_count = sleeping_count + 1
+            end
+        end
+    end
+
+    print(string.format("[SleepingAdvancesTime] Multiplayer check: %d/%d players sleeping", sleeping_count, living_count)) -- DEBUG
+
+    -- If no living players, return false (shouldn't happen, but safety check)
+    if living_count == 0 then
+        return false
+    end
+
+    -- All living players must be sleeping
+    return sleeping_count == living_count
+end
+
 -- Instant skip mode (original behavior)
 local function SleepingAdvancesTimeInstant(inst, sleeper)
     print("[SleepingAdvancesTime] Instant mode - Function called for sleeper: " .. (sleeper and sleeper.prefab or "nil")) -- DEBUG
@@ -45,6 +83,12 @@ local function SleepingAdvancesTimeInstant(inst, sleeper)
 
     inst:DoTaskInTime(sleep_delay, function()
         print("[SleepingAdvancesTime] DoTaskInTime callback started.") -- DEBUG
+
+        -- Check if all players are sleeping (multiplayer requirement)
+        if not AreAllPlayersSleeping() then
+            print("[SleepingAdvancesTime] Not all players are sleeping, skipping time advance.") -- DEBUG
+            return
+        end
 
         -- Get config values from TUNING
         local health_mult = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.HEALTH_MULT
@@ -168,6 +212,12 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
 
     inst:DoTaskInTime(speedup_delay, function()
         print("[SleepingAdvancesTime] Speedup mode - DoTaskInTime callback started.") -- DEBUG
+
+        -- Check if all players are sleeping (multiplayer requirement)
+        if not AreAllPlayersSleeping() then
+            print("[SleepingAdvancesTime] Not all players are sleeping, skipping time speedup.") -- DEBUG
+            return
+        end
 
         -- Get config values from TUNING
         local health_mult = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.HEALTH_MULT
