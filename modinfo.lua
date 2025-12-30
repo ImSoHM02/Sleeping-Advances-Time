@@ -98,6 +98,16 @@ configuration_options =
         },
         default = "all",
     },
+    {
+        name    = "DEBUG_MODE",
+        label   = "Debug Logging",
+        hover   = "Enable or disable debug messages in the console log.",
+        options = {
+            {description = "Off", data = false, hover = "No debug messages."},
+            {description = "On", data = true, hover = "Show debug messages in console."}
+        },
+        default = false,
+    },
     Title("Sleep Effect Multipliers"),
     {
         name    = "HEALTH_MULT",
