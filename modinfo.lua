@@ -1,5 +1,11 @@
-description = 
+description =
 [[
+-V1.2.0-
+Added time advancement mode selection:
+- Instant Skip: Instantly skip to the next day (original behavior)
+- Time Speedup: Speed up time while sleeping (configurable 2x-100x)
+Added support for Siesta Lean-to and Webber's spider den sleeping.
+
 -V1.1.0-
 Added configuration options to multiply the effects of sleeping:
 - Health Regeneration
@@ -14,7 +20,7 @@ Sleeping in a Tent, Portable Tent, or Straw Roll at dusk/night will advance time
 
 name                        = "Sleeping advances time"
 author                      = "Im So HM02"
-version                     = "1.1.0" -- Updated version
+version                     = "1.2.0" -- Updated version
 forumthread                 = ""
 icon                        = "modicon.tex"
 icon_atlas                  = "modicon.xml"
@@ -45,6 +51,43 @@ local OptionEffectMultiplier = {
 
 configuration_options =
 {
+    {
+        name    = "TIME_ADVANCE_MODE",
+        label   = "Time Advancement Mode",
+        hover   = "Choose how time advances while sleeping.",
+        options = {
+            {description = "Instant Skip", data = "instant", hover = "Instantly skip to the next day."},
+            {description = "Time Speedup", data = "speedup", hover = "Speed up time while sleeping."}
+        },
+        default = "instant",
+    },
+    {
+        name    = "SPEEDUP_MULTIPLIER",
+        label   = "Time Speedup Multiplier",
+        hover   = "How much faster time passes during sleep (only applies if Time Speedup mode is selected).",
+        options = {
+            {description = "x2", data = 2, hover = "Time passes 2 times faster."},
+            {description = "x5", data = 5, hover = "Time passes 5 times faster."},
+            {description = "x10", data = 10, hover = "Time passes 10 times faster."},
+            {description = "x20", data = 20, hover = "Time passes 20 times faster."},
+            {description = "x50", data = 50, hover = "Time passes 50 times faster."},
+            {description = "x100", data = 100, hover = "Time passes 100 times faster."}
+        },
+        default = 10,
+    },
+    {
+        name    = "SPEEDUP_DELAY",
+        label   = "Sleep Delay",
+        hover   = "How long to wait after going to sleep before time advances (applies to both Instant Skip and Time Speedup modes).",
+        options = {
+            {description = "No delay", data = 0, hover = "Time advances immediately."},
+            {description = "1 second", data = 1, hover = "Wait 1 second before time advances."},
+            {description = "2 seconds", data = 2, hover = "Wait 2 seconds before time advances."},
+            {description = "3 seconds", data = 3, hover = "Wait 3 seconds before time advances."},
+            {description = "5 seconds", data = 5, hover = "Wait 5 seconds before time advances."}
+        },
+        default = 2,
+    },
     Title("Sleep Effect Multipliers"),
     {
         name    = "HEALTH_MULT",
