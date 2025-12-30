@@ -5,6 +5,11 @@ Added time advancement mode selection:
 - Instant Skip: Instantly skip to the next day (original behavior)
 - Time Speedup: Speed up time while sleeping (configurable 2x-100x)
 Added support for Siesta Lean-to and Webber's spider den sleeping.
+Added configurable sleep delay (0-5 seconds) for both modes.
+Added multiplayer sleep requirement options:
+- All Players: Time advances only when all living players are asleep (default, prevents disruption in multiplayer)
+- Any Player: Original behavior where any player can trigger time advance
+Added debug logging toggle for troubleshooting (off by default).
 
 -V1.1.0-
 Added configuration options to multiply the effects of sleeping:
@@ -20,7 +25,7 @@ Sleeping in a Tent, Portable Tent, or Straw Roll at dusk/night will advance time
 
 name                        = "Sleeping advances time"
 author                      = "Im So HM02"
-version                     = "1.2.0" -- Updated version
+version                     = "1.2.0"
 forumthread                 = ""
 icon                        = "modicon.tex"
 icon_atlas                  = "modicon.xml"
