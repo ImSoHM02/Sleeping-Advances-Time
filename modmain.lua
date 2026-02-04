@@ -7,16 +7,8 @@ GLOBAL.TUNING.SLEEPING_ADVANCES_TIME = {
     TIME_ADVANCE_MODE = GetModConfigData("TIME_ADVANCE_MODE") or "instant",
     SPEEDUP_MULTIPLIER = GetModConfigData("SPEEDUP_MULTIPLIER") or 10,
     SPEEDUP_DELAY = GetModConfigData("SPEEDUP_DELAY") or 2,
-    MULTIPLAYER_SLEEP_MODE = GetModConfigData("MULTIPLAYER_SLEEP_MODE") or "all",
-    DEBUG_MODE = GetModConfigData("DEBUG_MODE") or false
+    MULTIPLAYER_SLEEP_MODE = GetModConfigData("MULTIPLAYER_SLEEP_MODE") or "all"
 }
-
--- Helper function for debug logging
-local function DebugPrint(...)
-    if GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.DEBUG_MODE then
-        print(...)
-    end
-end
 
 -- Helper function to apply stat changes
 local function ApplyStatChanges(sleeper, time_delta, health_mult, sanity_mult, hunger_mult)
@@ -30,11 +22,10 @@ local function ApplyStatChanges(sleeper, time_delta, health_mult, sanity_mult, h
         sleeper.components.health:DoDelta(time_delta * TUNING.SLEEP_HEALTH_PER_TICK * 2 * health_mult, false, "tent", true)
     end
     if sleeper.components.temperature then
-        local Temperature = (time_delta * TUNING.SLEEP_TEMP_PER_TICK)
-        if ((sleeper.components.temperature:GetCurrent() + Temperature) > TUNING.SLEEP_TARGET_TEMP_TENT) then
-            Temperature = TUNING.SLEEP_TARGET_TEMP_TENT
-        end
-        sleeper.components.temperature:SetTemperature(Temperature)
+        local current_temp = sleeper.components.temperature:GetCurrent()
+        local temp_delta = time_delta * TUNING.SLEEP_TEMP_PER_TICK
+        local new_temp = math.min(current_temp + temp_delta, TUNING.SLEEP_TARGET_TEMP_TENT)
+        sleeper.components.temperature:SetTemperature(new_temp)
     end
     if sleeper.components.moisture then
         sleeper.components.moisture:DoDelta(time_delta * TUNING.SLEEP_WETNESS_PER_TICK)
@@ -67,7 +58,7 @@ local function AreAllPlayersSleeping()
         end
     end
 
-    DebugPrint(string.format("[SleepingAdvancesTime] Multiplayer check: %d/%d players sleeping", sleeping_count, living_count))
+    print(string.format("[SleepingAdvancesTime] Multiplayer check: %d/%d players sleeping", sleeping_count, living_count)) -- DEBUG
 
     -- If no living players, return false (shouldn't happen, but safety check)
     if living_count == 0 then
@@ -80,9 +71,9 @@ end
 
 -- Instant skip mode (original behavior)
 local function SleepingAdvancesTimeInstant(inst, sleeper)
-    DebugPrint("[SleepingAdvancesTime] Instant mode - Function called for sleeper: " .. (sleeper and sleeper.prefab or "nil"))
+    print("[SleepingAdvancesTime] Instant mode - Function called for sleeper: " .. (sleeper and sleeper.prefab or "nil")) -- DEBUG
     if (not GLOBAL.TheWorld.ismastersim) then
-        DebugPrint("[SleepingAdvancesTime] Not master sim, returning.")
+        print("[SleepingAdvancesTime] Not master sim, returning.") -- DEBUG
         return
     end
 
@@ -90,11 +81,11 @@ local function SleepingAdvancesTimeInstant(inst, sleeper)
     local sleep_delay = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.SPEEDUP_DELAY
 
     inst:DoTaskInTime(sleep_delay, function()
-        DebugPrint("[SleepingAdvancesTime] DoTaskInTime callback started.")
+        print("[SleepingAdvancesTime] DoTaskInTime callback started.") -- DEBUG
 
         -- Check if all players are sleeping (multiplayer requirement)
         if not AreAllPlayersSleeping() then
-            DebugPrint("[SleepingAdvancesTime] Not all players are sleeping, skipping time advance.")
+            print("[SleepingAdvancesTime] Not all players are sleeping, skipping time advance.") -- DEBUG
             return
         end
 
@@ -103,17 +94,23 @@ local function SleepingAdvancesTimeInstant(inst, sleeper)
         local sanity_mult = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.SANITY_MULT
         local hunger_mult = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.HUNGER_MULT
         local crop_growth_mult = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.CROP_GROWTH_MULT
-
-        DebugPrint(string.format("[SleepingAdvancesTime] Multipliers: Health=%.2f, Sanity=%.2f, Hunger=%.2f, CropGrowth=%.2f", health_mult, sanity_mult, hunger_mult, crop_growth_mult))
+        
+        print(string.format("[SleepingAdvancesTime] Multipliers: Health=%.2f, Sanity=%.2f, Hunger=%.2f, CropGrowth=%.2f", health_mult, sanity_mult, hunger_mult, crop_growth_mult)) -- DEBUG
 
         local Time          = 0
         local PhaseTimeLeft = (1 - GLOBAL.TheWorld.state.timeinphase)
+        local Length_Day    = (TUNING.SEG_TIME * TUNING.DAY_SEGS_DEFAULT)
         local Length_Dusk   = (TUNING.SEG_TIME * TUNING.DUSK_SEGS_DEFAULT)
         local Length_Night  = (TUNING.SEG_TIME * TUNING.NIGHT_SEGS_DEFAULT)
+        local is_siesta     = (GLOBAL.TheWorld.state.phase == "day") -- Track if this is a daytime siesta
 
-        if (GLOBAL.TheWorld.state.phase == "dusk") then
-            Time = (Length_Dusk * PhaseTimeLeft)
-            Time = Time + (Length_Night * PhaseTimeLeft)
+        if (GLOBAL.TheWorld.state.phase == "day") then
+            -- Siesta: remaining day time until dusk
+            Time = (Length_Day * PhaseTimeLeft)
+
+        elseif (GLOBAL.TheWorld.state.phase == "dusk") then
+            -- Remaining dusk time plus full night duration
+            Time = (Length_Dusk * PhaseTimeLeft) + Length_Night
 
         elseif (GLOBAL.TheWorld.state.phase == "night") then
             Time = (Length_Night * PhaseTimeLeft)
@@ -154,13 +151,21 @@ local function SleepingAdvancesTimeInstant(inst, sleeper)
             Time = TicksAvailable
         end
 
-        -- Apply stat changes
-        ApplyStatChanges(sleeper, Time, health_mult, sanity_mult, hunger_mult)
+        -- Apply stat changes (health, sanity, temperature, moisture use capped Time)
+        -- Hunger uses TotalSleepDuration since it should drain based on actual time skipped
+        ApplyStatChanges(sleeper, Time, health_mult, sanity_mult, 0) -- No hunger here
+
+        -- Apply hunger drain separately based on total sleep duration
+        -- Use the sleeping item's hunger_tick rate (varies per item - siesta is slower than tent/bedroll)
+        local hunger_tick = inst.components.sleepingbag and inst.components.sleepingbag.hunger_tick or TUNING.SLEEP_HUNGER_PER_TICK
+        if sleeper.components.hunger and hunger_mult > 0 then
+            sleeper.components.hunger:DoDelta(TotalSleepDuration * hunger_tick * hunger_mult, false, true)
+        end
 
         -- Crop Growth Logic
         local effectiveCropGrowthDuration = TotalSleepDuration * crop_growth_mult
         if effectiveCropGrowthDuration > 0 and GLOBAL.TheWorld and sleeper then -- Keep GLOBAL.TheWorld check for safety, ensure sleeper is available
-            DebugPrint("[SleepingAdvancesTime] TotalSleepDuration (original): " .. tostring(TotalSleepDuration) .. ", EffectiveCropGrowthDuration (after mult): " .. tostring(effectiveCropGrowthDuration))
+            print("[SleepingAdvancesTime] TotalSleepDuration (original): " .. tostring(TotalSleepDuration) .. ", EffectiveCropGrowthDuration (after mult): " .. tostring(effectiveCropGrowthDuration)) -- DEBUG
             local sx, sy, sz = sleeper.Transform:GetWorldPosition()
             local search_radius = 100 -- A large radius to find nearby plants
             local plants_found = GLOBAL.TheSim:FindEntities(sx, sy, sz, search_radius, {"plant"}) -- Find entities with "plant" tag
@@ -168,37 +173,41 @@ local function SleepingAdvancesTimeInstant(inst, sleeper)
             if plants_found and #plants_found > 0 then
                 for i, ent in ipairs(plants_found) do
                     if ent and ent.components.growable and ent.prefab and string.sub(ent.prefab, 1, 11) == "farm_plant_" then
-                        DebugPrint("[SleepingAdvancesTime] Processing plant: " .. ent.prefab .. " using FindEntities")
+                        print("[SleepingAdvancesTime] Processing plant: " .. ent.prefab .. " using FindEntities") -- DEBUG
                         local stage_before = ent.components.growable:GetStage()
                         local debug_string_before = ent.components.growable:GetDebugString()
-                        DebugPrint("[SleepingAdvancesTime]   Stage before LongUpdate for " .. ent.prefab .. ": " .. tostring(stage_before) .. " | Debug: " .. tostring(debug_string_before))
-
+                        print("[SleepingAdvancesTime]   Stage before LongUpdate for " .. ent.prefab .. ": " .. tostring(stage_before) .. " | Debug: " .. tostring(debug_string_before)) -- DEBUG
+                        
                         ent.components.growable:LongUpdate(effectiveCropGrowthDuration)
-
+                        
                         local stage_after = ent.components.growable:GetStage()
                         local debug_string_after = ent.components.growable:GetDebugString()
-                        DebugPrint("[SleepingAdvancesTime]   Stage after LongUpdate for " .. ent.prefab .. ": " .. tostring(stage_after) .. " | Debug: " .. tostring(debug_string_after))
+                        print("[SleepingAdvancesTime]   Stage after LongUpdate for " .. ent.prefab .. ": " .. tostring(stage_after) .. " | Debug: " .. tostring(debug_string_after)) -- DEBUG
                     end
                 end
             end
         else
             -- DEBUG: Log why crop growth might be skipped
             if not (effectiveCropGrowthDuration > 0) then
-                DebugPrint("[SleepingAdvancesTime] Crop growth skipped: effectiveCropGrowthDuration was not > 0. Original: " .. tostring(TotalSleepDuration) .. ", Multiplier: " .. tostring(crop_growth_mult))
+                print("[SleepingAdvancesTime] Crop growth skipped: effectiveCropGrowthDuration was not > 0. Original: " .. tostring(TotalSleepDuration) .. ", Multiplier: " .. tostring(crop_growth_mult)) -- DEBUG
             end
             if not GLOBAL.TheWorld then
-                DebugPrint("[SleepingAdvancesTime] Crop growth skipped: GLOBAL.TheWorld is nil.")
+                print("[SleepingAdvancesTime] Crop growth skipped: GLOBAL.TheWorld is nil.") -- DEBUG
             end
             if not sleeper then
-                DebugPrint("[SleepingAdvancesTime] Crop growth skipped: sleeper object is nil.")
+                print("[SleepingAdvancesTime] Crop growth skipped: sleeper object is nil.") -- DEBUG
             end
         end
 
-        if (inst.components.finiteuses ~= nil) then
-            inst.components.finiteuses:Use()
-        end
+        -- Note: We don't call finiteuses:Use() here because the vanilla onwake
+        -- callback handles durability consumption when GoToState("wakeup") triggers
 
-        GLOBAL.TheWorld:PushEvent("ms_nextcycle")
+        -- Siesta advances to dusk, regular sleep advances to next day
+        if is_siesta then
+            GLOBAL.TheWorld:PushEvent("ms_nextphase") -- Advance to dusk
+        else
+            GLOBAL.TheWorld:PushEvent("ms_nextcycle") -- Advance to next day
+        end
 
         sleeper.sg:GoToState("wakeup")
     end)
@@ -206,9 +215,9 @@ end
 
 -- Time speedup mode (speeds up time instead of instant skip)
 local function SleepingAdvancesTimeSpeedup(inst, sleeper)
-    DebugPrint("[SleepingAdvancesTime] Speedup mode - Function called for sleeper: " .. (sleeper and sleeper.prefab or "nil"))
+    print("[SleepingAdvancesTime] Speedup mode - Function called for sleeper: " .. (sleeper and sleeper.prefab or "nil")) -- DEBUG
     if (not GLOBAL.TheWorld.ismastersim) then
-        DebugPrint("[SleepingAdvancesTime] Not master sim, returning.")
+        print("[SleepingAdvancesTime] Not master sim, returning.") -- DEBUG
         return
     end
 
@@ -219,11 +228,11 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
     local speedup_delay = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.SPEEDUP_DELAY
 
     inst:DoTaskInTime(speedup_delay, function()
-        DebugPrint("[SleepingAdvancesTime] Speedup mode - DoTaskInTime callback started.")
+        print("[SleepingAdvancesTime] Speedup mode - DoTaskInTime callback started.") -- DEBUG
 
         -- Check if all players are sleeping (multiplayer requirement)
         if not AreAllPlayersSleeping() then
-            DebugPrint("[SleepingAdvancesTime] Not all players are sleeping, skipping time speedup.")
+            print("[SleepingAdvancesTime] Not all players are sleeping, skipping time speedup.") -- DEBUG
             return
         end
 
@@ -234,21 +243,23 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
         local crop_growth_mult = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.CROP_GROWTH_MULT
         local speedup_mult = GLOBAL.TUNING.SLEEPING_ADVANCES_TIME.SPEEDUP_MULTIPLIER
 
-        DebugPrint(string.format("[SleepingAdvancesTime] Speedup: %dx, Multipliers: Health=%.2f, Sanity=%.2f, Hunger=%.2f, CropGrowth=%.2f",
-            speedup_mult, health_mult, sanity_mult, hunger_mult, crop_growth_mult))
+        print(string.format("[SleepingAdvancesTime] Speedup: %dx, Multipliers: Health=%.2f, Sanity=%.2f, Hunger=%.2f, CropGrowth=%.2f",
+            speedup_mult, health_mult, sanity_mult, hunger_mult, crop_growth_mult)) -- DEBUG
 
         local starting_phase = GLOBAL.TheWorld.state.phase
+        local is_siesta = (starting_phase == "day") -- Track if this is a daytime siesta
+        local target_phase = is_siesta and "dusk" or "day" -- Siesta wakes at dusk, regular sleep wakes at day
         local original_timescale = GLOBAL.TheSim:GetTimeScale()
 
         -- Set the time scale to speed up time
         GLOBAL.TheSim:SetTimeScale(speedup_mult)
-        DebugPrint("[SleepingAdvancesTime] Time scale set to " .. speedup_mult)
+        print("[SleepingAdvancesTime] Time scale set to " .. speedup_mult) -- DEBUG
 
         -- Override the hunger_tick to reduce hunger drain during speedup
         local original_hunger_tick = inst.components.sleepingbag.hunger_tick
         if original_hunger_tick then
             inst.components.sleepingbag.hunger_tick = original_hunger_tick / speedup_mult
-            DebugPrint("[SleepingAdvancesTime] Adjusted hunger_tick from " .. tostring(original_hunger_tick) .. " to " .. tostring(inst.components.sleepingbag.hunger_tick))
+            print("[SleepingAdvancesTime] Adjusted hunger_tick from " .. tostring(original_hunger_tick) .. " to " .. tostring(inst.components.sleepingbag.hunger_tick)) -- DEBUG
         end
 
         -- Track state changes
@@ -267,16 +278,16 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
             end
             sleep_data.cleaned_up = true
 
-            DebugPrint("[SleepingAdvancesTime] Cleaning up speedup mode")
+            print("[SleepingAdvancesTime] Cleaning up speedup mode") -- DEBUG
 
             -- Restore time scale
             GLOBAL.TheSim:SetTimeScale(original_timescale)
-            DebugPrint("[SleepingAdvancesTime] Time scale restored to " .. original_timescale)
+            print("[SleepingAdvancesTime] Time scale restored to " .. original_timescale) -- DEBUG
 
             -- Restore original hunger_tick
             if original_hunger_tick then
                 inst.components.sleepingbag.hunger_tick = original_hunger_tick
-                DebugPrint("[SleepingAdvancesTime] Restored hunger_tick to " .. tostring(original_hunger_tick))
+                print("[SleepingAdvancesTime] Restored hunger_tick to " .. tostring(original_hunger_tick)) -- DEBUG
             end
 
             -- Restore original onwake callback
@@ -285,7 +296,7 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
             -- Apply crop growth for total elapsed time
             local effectiveCropGrowthDuration = sleep_data.total_elapsed * crop_growth_mult
             if effectiveCropGrowthDuration > 0 and sleeper and sleeper:IsValid() then
-                DebugPrint("[SleepingAdvancesTime] Total sleep time: " .. tostring(sleep_data.total_elapsed) .. ", Effective crop growth: " .. tostring(effectiveCropGrowthDuration))
+                print("[SleepingAdvancesTime] Total sleep time: " .. tostring(sleep_data.total_elapsed) .. ", Effective crop growth: " .. tostring(effectiveCropGrowthDuration)) -- DEBUG
                 local sx, sy, sz = sleeper.Transform:GetWorldPosition()
                 local search_radius = 100
                 local plants_found = GLOBAL.TheSim:FindEntities(sx, sy, sz, search_radius, {"plant"})
@@ -293,7 +304,7 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
                 if plants_found and #plants_found > 0 then
                     for i, ent in ipairs(plants_found) do
                         if ent and ent.components.growable and ent.prefab and string.sub(ent.prefab, 1, 11) == "farm_plant_" then
-                            DebugPrint("[SleepingAdvancesTime] Processing plant: " .. ent.prefab)
+                            print("[SleepingAdvancesTime] Processing plant: " .. ent.prefab) -- DEBUG
                             ent.components.growable:LongUpdate(effectiveCropGrowthDuration)
                         end
                     end
@@ -324,7 +335,7 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
 
             -- Check if sleeper is still sleeping
             if not sleeper or not sleeper:IsValid() or sleeper.sg:HasStateTag("waking") or not sleeper.sleepingbag then
-                DebugPrint("[SleepingAdvancesTime] Sleeper woke up or is invalid, stopping speedup")
+                print("[SleepingAdvancesTime] Sleeper woke up or is invalid, stopping speedup") -- DEBUG
                 sleep_data.active = false
                 return
             end
@@ -335,20 +346,15 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
             sleep_data.last_update_time = current_time
             sleep_data.total_elapsed = sleep_data.total_elapsed + delta_time
 
-            -- Note: We don't manually apply stat changes in speedup mode because
-            -- the vanilla sleepingbaguser component handles stat changes automatically,
-            -- and it will run faster due to the time speedup.
-            -- Our stat multipliers won't apply in speedup mode (vanilla rates only)
-
-            -- Check if phase has changed to day
-            if GLOBAL.TheWorld.state.phase ~= starting_phase and GLOBAL.TheWorld.state.phase == "day" then
-                DebugPrint("[SleepingAdvancesTime] Phase changed to day, waking up sleeper")
+            -- Check if phase has changed to target (day for regular sleep, dusk for siesta)
+            if GLOBAL.TheWorld.state.phase == target_phase then
+                print("[SleepingAdvancesTime] Phase changed to " .. target_phase .. ", waking up sleeper") -- DEBUG
                 sleep_data.active = false
             end
 
             -- Check if player is out of hunger
             if sleeper.components.hunger and sleeper.components.hunger.current <= 0 then
-                DebugPrint("[SleepingAdvancesTime] Sleeper out of hunger, waking up")
+                print("[SleepingAdvancesTime] Sleeper out of hunger, waking up") -- DEBUG
                 sleep_data.active = false
             end
 
@@ -356,10 +362,8 @@ local function SleepingAdvancesTimeSpeedup(inst, sleeper)
             if not sleep_data.active then
                 CleanupSpeedup()
 
-                -- Use tent durability
-                if (inst.components.finiteuses ~= nil) then
-                    inst.components.finiteuses:Use()
-                end
+                -- Note: We don't call finiteuses:Use() here because the vanilla onwake
+                -- callback handles durability consumption when GoToState("wakeup") triggers
 
                 -- Wake up the sleeper
                 if sleeper and sleeper:IsValid() and sleeper.sg then
@@ -394,27 +398,45 @@ local function ApplySleepLogicDelayed(Prefab)
         return
     end
 
-    -- Check periodically if sleepingbag component has been added and apply our logic
+    local periodic_task = nil
+
+    -- Check if sleepingbag component has been added and apply our logic
     local function CheckAndApplySleepLogic(inst)
-        if inst.components.sleepingbag ~= nil and inst.components.sleepingbag.onsleep ~= SleepingAdvancesTime then
-            DebugPrint("[SleepingAdvancesTime] Applying sleep logic to spider den")
-            inst.components.sleepingbag.onsleep = SleepingAdvancesTime
+        if inst.components.sleepingbag ~= nil then
+            if inst.components.sleepingbag.onsleep ~= SleepingAdvancesTime then
+                print("[SleepingAdvancesTime] Applying sleep logic to spider den") -- DEBUG
+                inst.components.sleepingbag.onsleep = SleepingAdvancesTime
+            end
+            -- Cancel the periodic task once we've applied the logic
+            if periodic_task ~= nil then
+                periodic_task:Cancel()
+                periodic_task = nil
+            end
         end
     end
 
     -- Initial check after a delay
     Prefab:DoTaskInTime(0, CheckAndApplySleepLogic)
 
-    -- Periodic check in case den grows to tier 3 later
-    Prefab:DoPeriodicTask(5, CheckAndApplySleepLogic)
+    -- Periodic check in case den grows to tier 3 later (cancelled once sleepingbag is found)
+    periodic_task = Prefab:DoPeriodicTask(5, function()
+        CheckAndApplySleepLogic(Prefab)
+    end)
+
+    -- Clean up the periodic task if the spider den is removed
+    Prefab:ListenForEvent("onremove", function()
+        if periodic_task ~= nil then
+            periodic_task:Cancel()
+            periodic_task = nil
+        end
+    end)
 end
 
 AddPrefabPostInit("tent", ApplySleepLogic)
 AddPrefabPostInit("portabletent", ApplySleepLogic)
 AddPrefabPostInit("siestahut", ApplySleepLogic)
 AddPrefabPostInit("bedroll_straw", ApplySleepLogic)
---Seems to be an error where it uses 66% of the furry bedroll in one use, so disabled for now.
---AddPrefabPostInit("bedroll_furry", ApplySleepLogic)
+AddPrefabPostInit("bedroll_furry", ApplySleepLogic)
 
 -- Spider dens for Webber (all 3 tiers, sleeping bag is only added at tier 3)
 AddPrefabPostInit("spiderden", ApplySleepLogicDelayed)

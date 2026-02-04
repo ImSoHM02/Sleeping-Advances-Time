@@ -1,15 +1,20 @@
 description =
 [[
+-V1.2.1-
+Fixed:
+- Siesta Lean-to not providing stat regeneration or advancing time correctly
+- Siesta Lean-to now properly skips to dusk instead of next day
+- Furry Bedroll consuming double durability
+- Temperature calculation not properly warming the player
+- Dusk sleep time calculation (was incorrectly scaling night duration)
+- Spider den periodic task running indefinitely (now stops once applied)
+- Hunger now drains based on actual time skipped, not capped by stat recovery
+
 -V1.2.0-
 Added time advancement mode selection:
 - Instant Skip: Instantly skip to the next day (original behavior)
 - Time Speedup: Speed up time while sleeping (configurable 2x-100x)
 Added support for Siesta Lean-to and Webber's spider den sleeping.
-Added configurable sleep delay (0-5 seconds) for both modes.
-Added multiplayer sleep requirement options:
-- All Players: Time advances only when all living players are asleep (default, prevents disruption in multiplayer)
-- Any Player: Original behavior where any player can trigger time advance
-Added debug logging toggle for troubleshooting (off by default).
 
 -V1.1.0-
 Added configuration options to multiply the effects of sleeping:
@@ -25,7 +30,7 @@ Sleeping in a Tent, Portable Tent, or Straw Roll at dusk/night will advance time
 
 name                        = "Sleeping advances time"
 author                      = "Im So HM02"
-version                     = "1.2.0"
+version                     = "1.2.1"
 forumthread                 = ""
 icon                        = "modicon.tex"
 icon_atlas                  = "modicon.xml"
@@ -102,16 +107,6 @@ configuration_options =
             {description = "Any Player", data = "any", hover = "Any player can trigger time advance (original behavior)."}
         },
         default = "all",
-    },
-    {
-        name    = "DEBUG_MODE",
-        label   = "Debug Logging",
-        hover   = "Enable or disable debug messages in the console log.",
-        options = {
-            {description = "Off", data = false, hover = "No debug messages."},
-            {description = "On", data = true, hover = "Show debug messages in console."}
-        },
-        default = false,
     },
     Title("Sleep Effect Multipliers"),
     {
